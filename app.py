@@ -66,18 +66,36 @@ def calc_metrics(df, d1, d2, dur_ms):
     for i, p in enumerate(PHASE_NAMES):
         seg = df[(df["fase_norm"] >= bounds[i]) & (df["fase_norm"] <= bounds[i+1])]
         if seg.empty:
-            for k in ["dur_s","max_acc","min_acc","range_acc","auc_pos","auc_neg"]:
+            for k in ["dur_s","max_acc","min_acc","range_acc","auc_pos","auc_neg","jerk","freq_med"]:
                 out[f"{k}_{p}"] = np.nan
             continue
         phase_frac = (bounds[i+1]-bounds[i]) / total_range
-        out[f"dur_s_{p}"]    = round(phase_frac*dur_s*1000, 1) if dur_s else np.nan  # em ms
+        phase_dur_s = phase_frac * dur_s if dur_s else phase_frac
+        out[f"dur_s_{p}"] = round(phase_frac*dur_s*1000, 1) if dur_s else np.nan  # ms
+
         y = seg["media"].values
-        t = (seg["fase_norm"].values-bounds[i])/(bounds[i+1]-bounds[i]) * phase_frac * (dur_s or 1)
-        out[f"max_acc_{p}"]   = round(float(np.max(y)),4)
-        out[f"min_acc_{p}"]   = round(float(np.min(y)),4)
-        out[f"range_acc_{p}"] = round(float(np.max(y)-np.min(y)),4)
-        out[f"auc_pos_{p}"]   = round(float(np.trapezoid(np.where(y>0,y,0), t)),4)
-        out[f"auc_neg_{p}"]   = round(float(np.trapezoid(np.where(y<0,y,0), t)),4)
+        t = np.linspace(0, phase_dur_s, len(y))
+        dt = t[1] - t[0] if len(t) > 1 else 1.0
+
+        out[f"max_acc_{p}"]   = round(float(np.max(y)), 4)
+        out[f"min_acc_{p}"]   = round(float(np.min(y)), 4)
+        out[f"range_acc_{p}"] = round(float(np.max(y) - np.min(y)), 4)
+        out[f"auc_pos_{p}"]   = round(float(np.trapezoid(np.where(y>0,y,0), t)), 4)
+        out[f"auc_neg_{p}"]   = round(float(np.trapezoid(np.where(y<0,y,0), t)), 4)
+
+        # Jerk score — RMS da derivada da aceleração (m/s³)
+        jerk = np.gradient(y, t)
+        out[f"jerk_{p}"] = round(float(np.sqrt(np.mean(jerk**2))), 4)
+
+        # Frequência mediana via PSD (Hz)
+        if len(y) >= 4:
+            freqs = np.fft.rfftfreq(len(y), d=dt)
+            psd   = np.abs(np.fft.rfft(y))**2
+            cumsum = np.cumsum(psd)
+            idx_med = np.searchsorted(cumsum, cumsum[-1] / 2)
+            out[f"freq_med_{p}"] = round(float(freqs[min(idx_med, len(freqs)-1)]), 4)
+        else:
+            out[f"freq_med_{p}"] = np.nan
     return out
 
 # ── Resultante do grupo ────────────────────────────────────────────────────────
@@ -178,6 +196,10 @@ def build_metrics_df(people, excluded, divisions):
             row[f"AUC+_{pn} (m/s²·s)"] = m.get(f"auc_pos_{pn}","")
         for pn in PHASE_NAMES:
             row[f"AUC-_{pn} (m/s²·s)"] = m.get(f"auc_neg_{pn}","")
+        for pn in PHASE_NAMES:
+            row[f"Jerk_{pn} (m/s³)"] = m.get(f"jerk_{pn}","")
+        for pn in PHASE_NAMES:
+            row[f"FreqMed_{pn} (Hz)"] = m.get(f"freq_med_{pn}","")
         rows.append(row)
     return pd.DataFrame(rows)
 
@@ -267,6 +289,10 @@ def make_excel(people, excluded, divisions, grp_df, grp_d1, grp_d2):
                 grp_row[f"AUC+_{pn} (m/s²·s)"]  = gm.get(f"auc_pos_{pn}","")
             for pn in PHASE_NAMES:
                 grp_row[f"AUC-_{pn} (m/s²·s)"]  = gm.get(f"auc_neg_{pn}","")
+            for pn in PHASE_NAMES:
+                grp_row[f"Jerk_{pn} (m/s³)"]    = gm.get(f"jerk_{pn}","")
+            for pn in PHASE_NAMES:
+                grp_row[f"FreqMed_{pn} (Hz)"]   = gm.get(f"freq_med_{pn}","")
             pd.DataFrame([grp_row]).to_excel(writer, sheet_name="Métricas Grupo", index=False)
             ws3 = writer.sheets["Métricas Grupo"]
             for cell in ws3[1]:
@@ -375,11 +401,13 @@ for row_start in range(0, len(people), 2):
                     dur_txt = f"({dur_v:.0f}ms)" if dur_v and not np.isnan(float(dur_v)) else ""
                     st.markdown(f"**{pn}** {dur_txt}")
                     st.markdown(f"""<small>
-Max: **{m.get(f'max_acc_{pn}','—')}**<br>
-Min: **{m.get(f'min_acc_{pn}','—')}**<br>
-Range: **{m.get(f'range_acc_{pn}','—')}**<br>
-AUC+: **{m.get(f'auc_pos_{pn}','—')}**<br>
-AUC−: **{m.get(f'auc_neg_{pn}','—')}**
+Max: **{m.get(f'max_acc_{pn}','—')}** m/s²<br>
+Min: **{m.get(f'min_acc_{pn}','—')}** m/s²<br>
+Range: **{m.get(f'range_acc_{pn}','—')}** m/s²<br>
+AUC+: **{m.get(f'auc_pos_{pn}','—')}** m/s²·s<br>
+AUC−: **{m.get(f'auc_neg_{pn}','—')}** m/s²·s<br>
+Jerk: **{m.get(f'jerk_{pn}','—')}** m/s³<br>
+Freq. Med.: **{m.get(f'freq_med_{pn}','—')}** Hz
 </small>""", unsafe_allow_html=True)
             st.divider()
 
@@ -467,7 +495,9 @@ Max: **{gm.get(f'max_acc_{pn}','—')} m/s²**<br>
 Min: **{gm.get(f'min_acc_{pn}','—')} m/s²**<br>
 Range: **{gm.get(f'range_acc_{pn}','—')} m/s²**<br>
 AUC+: **{gm.get(f'auc_pos_{pn}','—')} m/s²·s**<br>
-AUC−: **{gm.get(f'auc_neg_{pn}','—')} m/s²·s**
+AUC−: **{gm.get(f'auc_neg_{pn}','—')} m/s²·s**<br>
+Jerk: **{gm.get(f'jerk_{pn}','—')} m/s³**<br>
+Freq. Med.: **{gm.get(f'freq_med_{pn}','—')} Hz**
 </small>""", unsafe_allow_html=True)
 
     # ── Export dedicado da resultante ──────────────────────────────────────────
