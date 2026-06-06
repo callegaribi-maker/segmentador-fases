@@ -76,8 +76,8 @@ def calc_metrics(df, d1, d2, dur_ms):
         out[f"max_acc_{p}"]   = round(float(np.max(y)),4)
         out[f"min_acc_{p}"]   = round(float(np.min(y)),4)
         out[f"range_acc_{p}"] = round(float(np.max(y)-np.min(y)),4)
-        out[f"auc_pos_{p}"]   = round(float(np.trapz(np.where(y>0,y,0), t)),4)
-        out[f"auc_neg_{p}"]   = round(float(np.trapz(np.where(y<0,y,0), t)),4)
+        out[f"auc_pos_{p}"]   = round(float(np.trapezoid(np.where(y>0,y,0), t)),4)
+        out[f"auc_neg_{p}"]   = round(float(np.trapezoid(np.where(y<0,y,0), t)),4)
     return out
 
 # ── Resultante do grupo ────────────────────────────────────────────────────────
