@@ -404,6 +404,34 @@ else:
     st.dataframe(styled, use_container_width=True, hide_index=True)
     st.caption("🟢 Linhas em verde = estatísticas do grupo | Aceleração em m/s² | AUC em m/s²·s | Duração em ms")
 
+    # Botão de exportar a tabela
+    def make_table_excel(combined, stat_idx):
+        buf = BytesIO()
+        with pd.ExcelWriter(buf, engine="openpyxl") as writer:
+            combined.to_excel(writer, sheet_name="Métricas Individuais", index=False)
+            ws = writer.sheets["Métricas Individuais"]
+            for cell in ws[1]:
+                cell.fill = PatternFill("solid", fgColor="2C3E50")
+                cell.font = Font(color="FFFFFF", bold=True)
+                cell.alignment = Alignment(horizontal="center", wrap_text=True)
+            ws.row_dimensions[1].height = 30
+            for si in stat_idx:
+                for cell in ws[si + 2]:
+                    cell.font = Font(bold=True)
+                    cell.fill = PatternFill("solid", fgColor="D5E8D4")
+                    cell.alignment = Alignment(horizontal="center")
+            for col in ws.columns:
+                ws.column_dimensions[get_column_letter(col[0].column)].width = 18
+            ws.freeze_panes = "B2"
+        return buf.getvalue()
+
+    st.download_button(
+        "⬇ Exportar esta tabela (.xlsx)",
+        data=make_table_excel(combined, stat_idx),
+        file_name="metricas_individuais.xlsx",
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    )
+
 st.divider()
 
 # ── Resultante do grupo (ao final) ─────────────────────────────────────────────
